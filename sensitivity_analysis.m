@@ -317,52 +317,7 @@ for i = 1:n_params
 end
 fprintf('已保存各参数独立图（%d 张）到: %s\n', n_params, ind_dir);
 
-% ── 8b. R_ud 总览图
-n_cols = 4;
-n_rows = ceil(n_params / n_cols);
-
-fig_R = figure('Visible', 'off', 'Name', 'OAT-R_ud', ...
-               'Position', [50 50 1600 900]);
-for i = 1:n_params
-    subplot(n_rows, n_cols, i);
-    plot(SA_param_values{i}, SA_R_vals{i}, 'b-', 'LineWidth', 1.2); hold on;
-    xline(theta_true(i), 'g--', 'LineWidth', 1.2);
-    yline(R_base, 'r:', 'LineWidth', 1.0);
-    xlabel(param_names{i}, 'Interpreter', 'none', 'FontSize', 8);
-    ylabel('R_{ud}', 'Interpreter', 'tex', 'FontSize', 8);
-    grid on; box on;
-    if SA_sensitive(i), ttl_clr = [0.8 0 0]; else, ttl_clr = [0.4 0.4 0.4]; end
-    title(sprintf('%s  dR/R=%.3f%%', param_names{i}, SA_R_range_rel(i)*100), ...
-        'Interpreter', 'none', 'FontSize', 8, 'Color', ttl_clr);
-end
-sgtitle('OAT 敏感性分析 — R_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
-    'Interpreter', 'tex', 'FontSize', 11);
-save_fig(fig_R, fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
-close(fig_R);
-fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
-
-% ── 8c. C_ud 总览图
-fig_C = figure('Visible', 'off', 'Name', 'OAT-C_ud', ...
-               'Position', [50 50 1600 900]);
-for i = 1:n_params
-    subplot(n_rows, n_cols, i);
-    plot(SA_param_values{i}, SA_C_vals{i}, 'm-', 'LineWidth', 1.2); hold on;
-    xline(theta_true(i), 'g--', 'LineWidth', 1.2);
-    yline(C_base, 'r:', 'LineWidth', 1.0);
-    xlabel(param_names{i}, 'Interpreter', 'none', 'FontSize', 8);
-    ylabel('C_{ud}', 'Interpreter', 'tex', 'FontSize', 8);
-    grid on; box on;
-    if SA_sensitive(i), ttl_clr = [0.8 0 0]; else, ttl_clr = [0.4 0.4 0.4]; end
-    title(sprintf('%s  dC/C=%.3f%%', param_names{i}, SA_C_range_rel(i)*100), ...
-        'Interpreter', 'none', 'FontSize', 8, 'Color', ttl_clr);
-end
-sgtitle('OAT 敏感性分析 — C_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
-    'Interpreter', 'tex', 'FontSize', 11);
-save_fig(fig_C, fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
-close(fig_C);
-fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
-
-% ── 8d. 敏感性排名条形图
+% ── 8b. 敏感性排名条形图
 max_rels_pct = SA_max_rel * 100;
 [sorted_mr, sidx] = sort(max_rels_pct, 'descend', 'MissingPlacement', 'last');
 sorted_names = param_names(sidx);
