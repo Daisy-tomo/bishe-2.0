@@ -13,27 +13,29 @@
 %   - 每个参数独立扫描图（保存到 sensitivity_output/）
 %   - R_ud / C_ud 总览图
 %   - 敏感性排名条形图
-%   - sensitivity_summary.csv
+%   - sensitivity_summary.csv  +  各参数逐点扫描 CSV
 
 clear; clc; close all;
 
 %% ──────────────────────────────────────────────────────────────
 %  1. 参数定义（与 xiuzhengcanshu.m 完全一致）
+%     注意：param_names 使用普通下划线（无 LaTeX 转义），
+%           绘图时设置 Interpreter=none，避免误解释。
 %% ──────────────────────────────────────────────────────────────
 param_names = {
-    'eta\_k',      ...  % 压气机绝热效率
-    'eta\_t',      ...  % 涡轮绝热效率
-    'eta\_m',      ...  % 机械效率
-    'eta\_v',      ...  % 风扇效率
-    'eta\_tv',     ...  % 风扇涡轮效率
-    'eta\_c1',     ...  % 一次喷管效率
-    'eta\_c2',     ...  % 二次喷管效率
-    'sigma\_cc',   ...  % 进气道激波总压恢复系数
-    'sigma\_kan',  ...  % 进气通道总压恢复系数
-    'sigma\_kask', ...  % 压气机级间总压恢复系数
-    'sigma\_ks',   ...  % 燃烧室总压恢复系数
-    'eta\_T',      ...  % 燃烧放热系数
-    'lambda'        ...  % 风扇涡轮热恢复系数
+    'eta_k',      ...  % 压气机绝热效率
+    'eta_t',      ...  % 涡轮绝热效率
+    'eta_m',      ...  % 机械效率
+    'eta_v',      ...  % 风扇效率
+    'eta_tv',     ...  % 风扇涡轮效率
+    'eta_c1',     ...  % 一次喷管效率
+    'eta_c2',     ...  % 二次喷管效率
+    'sigma_cc',   ...  % 进气道激波总压恢复系数
+    'sigma_kan',  ...  % 进气通道总压恢复系数
+    'sigma_kask', ...  % 压气机级间总压恢复系数
+    'sigma_ks',   ...  % 燃烧室总压恢复系数
+    'eta_T',      ...  % 燃烧放热系数
+    'lambda'       ...  % 风扇涡轮热恢复系数
 };
 
 param_names_cn = {
@@ -96,7 +98,7 @@ if ~exist(ind_dir, 'dir'), mkdir(ind_dir); end
 %% ──────────────────────────────────────────────────────────────
 %  4. 基准输出
 %% ──────────────────────────────────────────────────────────────
-[y_base, aux_base] = engine_forward(theta_true, cond);
+[y_base, ~] = engine_forward(theta_true, cond);
 if ~all(isfinite(y_base))
     error('真值参数前向模型输出无效，请检查 engine_forward。');
 end
@@ -112,24 +114,21 @@ fprintf('工况: T_H=%.0fK, M=%.1f, m=%.0f, pi_k=%.0f, T_g=%.0fK\n', ...
     cond.T_H, cond.M_flight, cond.m, cond.pi_k, cond.T_g);
 fprintf('\n基准输出（theta_true）:\n');
 fprintf('  R_ud_base = %.4f [N·s/kg]\n', R_base);
-fprintf('  C_ud_base = %.6f [kg/(N·h)]\n', C_base);
-fprintf('\n');
+fprintf('  C_ud_base = %.6f [kg/(N·h)]\n\n', C_base);
 
 %% ──────────────────────────────────────────────────────────────
-%  5. 逐一测试 OAT
+%  5. 逐一测试 OAT —— 保留每个参数的完整逐点结果
 %% ──────────────────────────────────────────────────────────────
-
-% 存储每个参数的结果
-SA.param_values = cell(n_params, 1);   % 扫描点
-SA.R_vals       = cell(n_params, 1);   % R_ud 值
-SA.C_vals       = cell(n_params, 1);   % C_ud 值
-SA.R_range_rel  = zeros(n_params, 1);  % ΔR/R
-SA.C_range_rel  = zeros(n_params, 1);  % ΔC/C
-SA.max_rel      = zeros(n_params, 1);  % max(ΔR/R, ΔC/C)
-SA.sensitive    = false(n_params, 1);  % 是否敏感
+SA_param_values = cell(n_params, 1);
+SA_R_vals       = cell(n_params, 1);
+SA_C_vals       = cell(n_params, 1);
+SA_R_range_rel  = NaN(n_params, 1);
+SA_C_range_rel  = NaN(n_params, 1);
+SA_max_rel      = NaN(n_params, 1);
+SA_sensitive    = false(n_params, 1);
 
 for i = 1:n_params
-    pv = linspace(lb(i), ub(i), N_POINTS);
+    pv    = linspace(lb(i), ub(i), N_POINTS);
     R_arr = NaN(1, N_POINTS);
     C_arr = NaN(1, N_POINTS);
 
@@ -143,40 +142,32 @@ for i = 1:n_params
         end
     end
 
-    SA.param_values{i} = pv;
-    SA.R_vals{i}       = R_arr;
-    SA.C_vals{i}       = C_arr;
+    SA_param_values{i} = pv;
+    SA_R_vals{i}       = R_arr;
+    SA_C_vals{i}       = C_arr;
 
-    valid = isfinite(R_arr) & isfinite(C_arr);
+    valid   = isfinite(R_arr) & isfinite(C_arr);
     n_valid = sum(valid);
 
     if n_valid >= 2
-        R_range = max(R_arr(valid)) - min(R_arr(valid));
-        C_range = max(C_arr(valid)) - min(C_arr(valid));
-        SA.R_range_rel(i) = R_range / abs(R_base);
-        SA.C_range_rel(i) = C_range / abs(C_base);
-        SA.max_rel(i)     = max(SA.R_range_rel(i), SA.C_range_rel(i));
-        SA.sensitive(i)   = SA.max_rel(i) >= THRESHOLD;
-    else
-        SA.R_range_rel(i) = NaN;
-        SA.C_range_rel(i) = NaN;
-        SA.max_rel(i)     = NaN;
-        SA.sensitive(i)   = false;
+        SA_R_range_rel(i) = (max(R_arr(valid)) - min(R_arr(valid))) / abs(R_base);
+        SA_C_range_rel(i) = (max(C_arr(valid)) - min(C_arr(valid))) / abs(C_base);
+        SA_max_rel(i)     = max(SA_R_range_rel(i), SA_C_range_rel(i));
+        SA_sensitive(i)   = SA_max_rel(i) >= THRESHOLD;
     end
 
-    % 控制台打印
-    if SA.sensitive(i)
-        status_str = '敏感  [✓]';
+    % ── 控制台：逐参数打印
+    if SA_sensitive(i)
+        status_str = '敏感  [+]';
     else
-        status_str = '不敏感 [✗]';
+        status_str = '不敏感[-]';
     end
-    % 去掉下划线转义以便 fprintf
-    raw_name = strrep(param_names{i}, '\_', '_');
-    fprintf('[%02d/%02d] %-12s (%s)\n', i, n_params, raw_name, param_names_cn{i});
+    fprintf('[%02d/%02d] %-12s  (%s)\n', i, n_params, ...
+        param_names{i}, param_names_cn{i});
     fprintf('         区间: [%.4f, %.4f]   真值: %.4f\n', lb(i), ub(i), theta_true(i));
     if n_valid >= 2
-        fprintf('         ΔR_ud/R_base = %.4f%%   ΔC_ud/C_base = %.4f%%   max = %.4f%%  →  %s\n', ...
-            SA.R_range_rel(i)*100, SA.C_range_rel(i)*100, SA.max_rel(i)*100, status_str);
+        fprintf('         dR/R = %7.4f%%   dC/C = %7.4f%%   max = %7.4f%%  =>  %s\n', ...
+            SA_R_range_rel(i)*100, SA_C_range_rel(i)*100, SA_max_rel(i)*100, status_str);
     else
         fprintf('         有效点不足 (%d)，无法评估\n', n_valid);
     end
@@ -186,139 +177,141 @@ end
 %% ──────────────────────────────────────────────────────────────
 %  6. 汇总表（按 max_rel 降序）
 %% ──────────────────────────────────────────────────────────────
-[~, sort_idx] = sort(SA.max_rel, 'descend');
+[~, sort_idx] = sort(SA_max_rel, 'descend', 'MissingPlacement', 'last');
 
 fprintf('================================================================================\n');
 fprintf('敏感性分析汇总（按影响大小降序排列）\n');
 fprintf('================================================================================\n');
-fprintf('%-4s  %-12s  %-20s  %10s  %10s  %10s  %s\n', ...
-    '#', '参数名', '中文名', 'ΔR/R [%]', 'ΔC/C [%]', '最大 [%]', '结论');
+fprintf('%-4s  %-12s  %-22s  %9s  %9s  %9s  %s\n', ...
+    '序号', '参数名', '中文名', 'dR/R[%]', 'dC/C[%]', 'max[%]', '结论');
 fprintf('%s\n', repmat('-', 1, 80));
 
 for k = 1:n_params
     i = sort_idx(k);
-    raw_name = strrep(param_names{i}, '\_', '_');
-    if SA.sensitive(i)
-        tag = '敏感  [✓]';
-    else
-        tag = '不敏感 [✗]';
-    end
-    fprintf('%-4d  %-12s  %-20s  %10.4f  %10.4f  %10.4f  %s\n', ...
-        i, raw_name, param_names_cn{i}, ...
-        SA.R_range_rel(i)*100, SA.C_range_rel(i)*100, SA.max_rel(i)*100, tag);
+    if SA_sensitive(i), tag = '敏感  [+]'; else, tag = '不敏感[-]'; end
+    fprintf('%-4d  %-12s  %-22s  %9.4f  %9.4f  %9.4f  %s\n', ...
+        i, param_names{i}, param_names_cn{i}, ...
+        SA_R_range_rel(i)*100, SA_C_range_rel(i)*100, SA_max_rel(i)*100, tag);
 end
-
 fprintf('================================================================================\n');
-sensitive_list   = find(SA.sensitive);
-insensitive_list = find(~SA.sensitive);
+
+sensitive_idx   = find(SA_sensitive);
+insensitive_idx = find(~SA_sensitive);
 
 fprintf('\n[结果]  阈值 = %.1f%%（观测噪声水平）\n', THRESHOLD*100);
-fprintf('  敏感参数   (%d 个):', numel(sensitive_list));
-for k = sensitive_list
-    fprintf(' %s', strrep(param_names{k}, '\_', '_'));
+
+fprintf('  敏感参数   (%d 个):', numel(sensitive_idx));
+for k = 1:numel(sensitive_idx)
+    fprintf(' %s', param_names{sensitive_idx(k)});
 end
 fprintf('\n');
-fprintf('  不敏感参数 (%d 个):', numel(insensitive_list));
-for k = insensitive_list
-    fprintf(' %s', strrep(param_names{k}, '\_', '_'));
+
+fprintf('  不敏感参数 (%d 个):', numel(insensitive_idx));
+for k = 1:numel(insensitive_idx)
+    fprintf(' %s', param_names{insensitive_idx(k)});
 end
 fprintf('\n\n');
+
 fprintf('建议：\n');
-fprintf('  [✓] 保留敏感参数作为 MCMC 待估变量\n');
-fprintf('  [✗] 将不敏感参数固定为先验均值，减少参数维度\n\n');
+fprintf('  [+] 保留敏感参数作为 MCMC 待估变量\n');
+fprintf('  [-] 将不敏感参数固定为先验均值，减少参数维度\n\n');
 
 %% ──────────────────────────────────────────────────────────────
-%  7. CSV 输出（完整结果）
+%  7. CSV 输出
 %% ──────────────────────────────────────────────────────────────
+% 7a. 汇总表
 csv_path = fullfile(out_dir, 'sensitivity_summary.csv');
 fid = fopen(csv_path, 'w', 'n', 'UTF-8');
-fprintf(fid, '序号,参数名,中文名,下界,上界,真值,ΔR/R[%%],ΔC/C[%%],max_rel[%%],敏感性\n');
+fprintf(fid, '序号,参数名,中文名,下界,上界,真值,dR/R[%%],dC/C[%%],max_rel[%%],敏感性\n');
 for k = 1:n_params
     i = sort_idx(k);
-    raw_name = strrep(param_names{i}, '\_', '_');
-    if SA.sensitive(i), tag2 = '敏感'; else, tag2 = '不敏感'; end
+    if SA_sensitive(i), tag2 = '敏感'; else, tag2 = '不敏感'; end
     fprintf(fid, '%d,%s,%s,%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%s\n', ...
-        i, raw_name, param_names_cn{i}, ...
+        i, param_names{i}, param_names_cn{i}, ...
         lb(i), ub(i), theta_true(i), ...
-        SA.R_range_rel(i)*100, SA.C_range_rel(i)*100, SA.max_rel(i)*100, tag2);
+        SA_R_range_rel(i)*100, SA_C_range_rel(i)*100, SA_max_rel(i)*100, tag2);
 end
 fclose(fid);
 fprintf('已保存汇总 CSV: %s\n', csv_path);
 
-% 同时保存各参数逐点扫描数据（每个参数一个 CSV）
+% 7b. 每个参数逐点扫描数据
 for i = 1:n_params
-    raw_name = strrep(param_names{i}, '\_', '_');
-    pdata_path = fullfile(out_dir, sprintf('scan_param_%02d_%s.csv', i, raw_name));
+    pdata_path = fullfile(out_dir, ...
+        sprintf('scan_param_%02d_%s.csv', i, param_names{i}));
     fid2 = fopen(pdata_path, 'w', 'n', 'UTF-8');
     fprintf(fid2, '参数值,R_ud,C_ud\n');
-    pv    = SA.param_values{i};
-    R_arr = SA.R_vals{i};
-    C_arr = SA.C_vals{i};
+    pv    = SA_param_values{i};
+    R_arr = SA_R_vals{i};
+    C_arr = SA_C_vals{i};
     for j = 1:N_POINTS
         fprintf(fid2, '%.8f,%.8f,%.10f\n', pv(j), R_arr(j), C_arr(j));
     end
     fclose(fid2);
 end
-fprintf('已保存各参数逐点扫描 CSV（%d 个）到: %s/\n', n_params, out_dir);
+fprintf('已保存各参数逐点扫描 CSV（%d 个）到: %s/\n\n', n_params, out_dir);
 
 %% ──────────────────────────────────────────────────────────────
 %  8. 图形输出
 %% ──────────────────────────────────────────────────────────────
-fprintf('\n正在绘制图形...\n');
+fprintf('正在绘制图形...\n');
 
 % ── 8a. 每个参数独立图（R 和 C 并排）
 for i = 1:n_params
-    raw_name = strrep(param_names{i}, '\_', '_');
-    pv    = SA.param_values{i};
-    R_arr = SA.R_vals{i};
-    C_arr = SA.C_vals{i};
+    pv    = SA_param_values{i};
+    R_arr = SA_R_vals{i};
+    C_arr = SA_C_vals{i};
 
     fig = figure('Visible', 'off', 'Position', [100 100 1100 420]);
 
     % R_ud
-    subplot(1, 2, 1);
+    ax1 = subplot(1, 2, 1);
     plot(pv, R_arr, 'b-o', 'MarkerSize', 3, 'LineWidth', 1.2); hold on;
-    xline(theta_true(i), 'g--', 'LineWidth', 1.5, ...
-        'Label', sprintf('真值=%.4f', theta_true(i)), 'LabelVerticalAlignment', 'bottom');
-    yline(R_base, 'r:', 'LineWidth', 1.2, ...
-        'Label', sprintf('基准=%.4f', R_base), 'LabelHorizontalAlignment', 'right');
-    xlabel(sprintf('%s  [%.4f, %.4f]', raw_name, lb(i), ub(i)));
-    ylabel('R_{ud} [N·s/kg]');
+    xline(theta_true(i), 'g--', 'LineWidth', 1.5);
+    yline(R_base, 'r:',  'LineWidth', 1.2);
+    xlabel(sprintf('%s  [%.4f, %.4f]', param_names{i}, lb(i), ub(i)), ...
+        'Interpreter', 'none');
+    ylabel('R_{ud} [N\cdots/kg]', 'Interpreter', 'tex');
+    legend('扫描值', sprintf('真值=%.4f',theta_true(i)), ...
+           sprintf('基准=%.4f',R_base), 'Location','best','FontSize',8);
     grid on;
-    rel_r = SA.R_range_rel(i) * 100;
-    title(sprintf('R_{ud} 对 %s 的敏感性\n\\DeltaR/R = %.4f%%', raw_name, rel_r));
+    title(sprintf('R_{ud} 对 %s 的敏感性   \\DeltaR/R = %.4f%%', ...
+        param_names{i}, SA_R_range_rel(i)*100), ...
+        'Interpreter','tex','FontSize',9);
 
     % C_ud
-    subplot(1, 2, 2);
+    ax2 = subplot(1, 2, 2);
     plot(pv, C_arr, 'm-o', 'MarkerSize', 3, 'LineWidth', 1.2); hold on;
-    xline(theta_true(i), 'g--', 'LineWidth', 1.5, ...
-        'Label', sprintf('真值=%.4f', theta_true(i)), 'LabelVerticalAlignment', 'bottom');
-    yline(C_base, 'r:', 'LineWidth', 1.2, ...
-        'Label', sprintf('基准=%.6f', C_base), 'LabelHorizontalAlignment', 'right');
-    xlabel(sprintf('%s  [%.4f, %.4f]', raw_name, lb(i), ub(i)));
-    ylabel('C_{ud} [kg/(N·h)]');
+    xline(theta_true(i), 'g--', 'LineWidth', 1.5);
+    yline(C_base, 'r:',  'LineWidth', 1.2);
+    xlabel(sprintf('%s  [%.4f, %.4f]', param_names{i}, lb(i), ub(i)), ...
+        'Interpreter', 'none');
+    ylabel('C_{ud} [kg/(N\cdoth)]', 'Interpreter', 'tex');
+    legend('扫描值', sprintf('真值=%.4f',theta_true(i)), ...
+           sprintf('基准=%.6f',C_base), 'Location','best','FontSize',8);
     grid on;
-    rel_c = SA.C_range_rel(i) * 100;
-    title(sprintf('C_{ud} 对 %s 的敏感性\n\\DeltaC/C = %.4f%%', raw_name, rel_c));
+    title(sprintf('C_{ud} 对 %s 的敏感性   \\DeltaC/C = %.4f%%', ...
+        param_names{i}, SA_C_range_rel(i)*100), ...
+        'Interpreter','tex','FontSize',9);
 
-    if SA.sensitive(i)
-        status_title = '敏感 [✓]';
+    if SA_sensitive(i)
+        status_title = '敏感 [+]';
         clr = [0.8 0 0];
     else
-        status_title = '不敏感 [✗]';
+        status_title = '不敏感 [-]';
         clr = [0.4 0.4 0.4];
     end
-    sgtitle(sprintf('参数 %02d: %s (%s)   →   %s', ...
-        i, raw_name, param_names_cn{i}, status_title), ...
-        'Color', clr, 'FontSize', 11, 'FontWeight', 'bold');
+    sgtitle(sprintf('参数 %02d: %s (%s)   =>   %s', ...
+        i, param_names{i}, param_names_cn{i}, status_title), ...
+        'Interpreter', 'none', 'Color', clr, ...
+        'FontSize', 11, 'FontWeight', 'bold');
 
-    fname = fullfile(ind_dir, sprintf('param_%02d_%s.png', i, raw_name));
+    fname = fullfile(ind_dir, sprintf('param_%02d_%s.png', i, param_names{i}));
     saveas(fig, fname);
     close(fig);
 end
 fprintf('已保存各参数独立图（%d 张）到: %s/\n', n_params, ind_dir);
 
-% ── 8b. R_ud 总览图（4行×4列，按参数序号）
+% ── 8b. R_ud 总览图
 n_cols = 4;
 n_rows = ceil(n_params / n_cols);
 
@@ -326,27 +319,18 @@ fig_R = figure('Visible', 'off', 'Name', 'OAT-R_ud', ...
                'Position', [50 50 1600 900]);
 for i = 1:n_params
     subplot(n_rows, n_cols, i);
-    pv    = SA.param_values{i};
-    R_arr = SA.R_vals{i};
-    raw_name = strrep(param_names{i}, '\_', '_');
-
-    plot(pv, R_arr, 'b-', 'LineWidth', 1.2); hold on;
+    plot(SA_param_values{i}, SA_R_vals{i}, 'b-', 'LineWidth', 1.2); hold on;
     xline(theta_true(i), 'g--', 'LineWidth', 1.2);
-    yline(R_base, 'r:',  'LineWidth', 1.0);
-    xlabel(raw_name, 'FontSize', 8);
-    ylabel('R_{ud}', 'FontSize', 8);
+    yline(R_base, 'r:', 'LineWidth', 1.0);
+    xlabel(param_names{i}, 'Interpreter', 'none', 'FontSize', 8);
+    ylabel('R_{ud}', 'Interpreter', 'tex', 'FontSize', 8);
     grid on; box on;
-
-    rel_r = SA.R_range_rel(i) * 100;
-    if SA.sensitive(i)
-        ttl_clr = [0.8 0 0];
-    else
-        ttl_clr = [0.4 0.4 0.4];
-    end
-    title(sprintf('%s\n\\DeltaR/R=%.3f%%', raw_name, rel_r), ...
-        'FontSize', 7.5, 'Color', ttl_clr);
+    if SA_sensitive(i), ttl_clr = [0.8 0 0]; else, ttl_clr = [0.4 0.4 0.4]; end
+    title(sprintf('%s  dR/R=%.3f%%', param_names{i}, SA_R_range_rel(i)*100), ...
+        'Interpreter', 'none', 'FontSize', 8, 'Color', ttl_clr);
 end
-sgtitle('OAT 敏感性分析 — R_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', 'FontSize', 11);
+sgtitle('OAT 敏感性分析 — R_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
+    'Interpreter', 'tex', 'FontSize', 11);
 saveas(fig_R, fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
 close(fig_R);
 fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
@@ -356,41 +340,32 @@ fig_C = figure('Visible', 'off', 'Name', 'OAT-C_ud', ...
                'Position', [50 50 1600 900]);
 for i = 1:n_params
     subplot(n_rows, n_cols, i);
-    pv    = SA.param_values{i};
-    C_arr = SA.C_vals{i};
-    raw_name = strrep(param_names{i}, '\_', '_');
-
-    plot(pv, C_arr, 'm-', 'LineWidth', 1.2); hold on;
+    plot(SA_param_values{i}, SA_C_vals{i}, 'm-', 'LineWidth', 1.2); hold on;
     xline(theta_true(i), 'g--', 'LineWidth', 1.2);
-    yline(C_base, 'r:',  'LineWidth', 1.0);
-    xlabel(raw_name, 'FontSize', 8);
-    ylabel('C_{ud}', 'FontSize', 8);
+    yline(C_base, 'r:', 'LineWidth', 1.0);
+    xlabel(param_names{i}, 'Interpreter', 'none', 'FontSize', 8);
+    ylabel('C_{ud}', 'Interpreter', 'tex', 'FontSize', 8);
     grid on; box on;
-
-    rel_c = SA.C_range_rel(i) * 100;
-    if SA.sensitive(i)
-        ttl_clr = [0.8 0 0];
-    else
-        ttl_clr = [0.4 0.4 0.4];
-    end
-    title(sprintf('%s\n\\DeltaC/C=%.3f%%', raw_name, rel_c), ...
-        'FontSize', 7.5, 'Color', ttl_clr);
+    if SA_sensitive(i), ttl_clr = [0.8 0 0]; else, ttl_clr = [0.4 0.4 0.4]; end
+    title(sprintf('%s  dC/C=%.3f%%', param_names{i}, SA_C_range_rel(i)*100), ...
+        'Interpreter', 'none', 'FontSize', 8, 'Color', ttl_clr);
 end
-sgtitle('OAT 敏感性分析 — C_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', 'FontSize', 11);
+sgtitle('OAT 敏感性分析 — C_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
+    'Interpreter', 'tex', 'FontSize', 11);
 saveas(fig_C, fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
 close(fig_C);
 fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
 
 % ── 8d. 敏感性排名条形图
-max_rels_pct = SA.max_rel * 100;
-[sorted_mr, sidx] = sort(max_rels_pct, 'descend');
-sorted_names = cellfun(@(s) strrep(s,'\_','_'), param_names(sidx), 'UniformOutput', false);
-bar_colors = zeros(n_params, 3);
+max_rels_pct = SA_max_rel * 100;
+[sorted_mr, sidx] = sort(max_rels_pct, 'descend', 'MissingPlacement', 'last');
+sorted_names = param_names(sidx);
+bar_colors   = zeros(n_params, 3);
 for k = 1:n_params
-    if SA.sensitive(sidx(k))
-        bar_colors(k,:) = [0.85 0.33 0.10];   % 红橙（敏感）
+    if SA_sensitive(sidx(k))
+        bar_colors(k,:) = [0.85 0.33 0.10];
     else
-        bar_colors(k,:) = [0.30 0.55 0.80];   % 蓝（不敏感）
+        bar_colors(k,:) = [0.30 0.55 0.80];
     end
 end
 
@@ -398,13 +373,13 @@ fig_bar = figure('Visible', 'off', 'Position', [100 100 900 560]);
 hb = barh(1:n_params, sorted_mr, 'FaceColor', 'flat');
 hb.CData = bar_colors;
 hold on;
-xline(THRESHOLD * 100, 'k--', 'LineWidth', 2.0, ...
-    'Label', sprintf('阈值 %.0f%%', THRESHOLD*100), ...
-    'LabelVerticalAlignment', 'bottom', 'FontSize', 9);
-set(gca, 'YTick', 1:n_params, 'YTickLabel', sorted_names, 'FontSize', 9);
-xlabel('max(\DeltaR/R, \DeltaC/C) [%]', 'FontSize', 10);
+xline(THRESHOLD * 100, 'k--', 'LineWidth', 2.0);
+text(THRESHOLD*100 + 0.02, n_params*0.05, ...
+    sprintf('阈值 %.0f%%', THRESHOLD*100), 'FontSize', 9);
+set(gca, 'YTick', 1:n_params, 'YTickLabel', sorted_names, ...
+    'TickLabelInterpreter', 'none', 'FontSize', 9);
+xlabel('max(dR/R, dC/C) [%]', 'FontSize', 10);
 title('各参数敏感性排名（橙红=敏感，蓝=不敏感）', 'FontSize', 11);
-% 标注数值
 for k = 1:n_params
     text(sorted_mr(k) + 0.01, k, sprintf('%.3f%%', sorted_mr(k)), ...
         'VerticalAlignment', 'middle', 'FontSize', 8);
