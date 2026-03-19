@@ -90,10 +90,16 @@ cond.T_g      = 1700.0;
 N_POINTS  = 100;    % 每个参数的扫描点数
 THRESHOLD = 0.01;   % 敏感性阈值（= 观测噪声水平 1%）
 
-out_dir = 'sensitivity_output';
+% ── 输出目录固定在脚本所在文件夹，不受 MATLAB 当前工作目录影响
+script_dir = fileparts(mfilename('fullpath'));
+if isempty(script_dir)           % 在命令窗口直接运行时的回退
+    script_dir = pwd;
+end
+out_dir = fullfile(script_dir, 'sensitivity_output');
 if ~exist(out_dir, 'dir'), mkdir(out_dir); end
 ind_dir = fullfile(out_dir, 'individual_curves');
 if ~exist(ind_dir, 'dir'), mkdir(ind_dir); end
+fprintf('输出目录: %s\n\n', out_dir);
 
 %% ──────────────────────────────────────────────────────────────
 %  4. 基准输出
@@ -306,10 +312,10 @@ for i = 1:n_params
         'FontSize', 11, 'FontWeight', 'bold');
 
     fname = fullfile(ind_dir, sprintf('param_%02d_%s.png', i, param_names{i}));
-    saveas(fig, fname);
+    save_fig(fig, fname);
     close(fig);
 end
-fprintf('已保存各参数独立图（%d 张）到: %s/\n', n_params, ind_dir);
+fprintf('已保存各参数独立图（%d 张）到: %s\n', n_params, ind_dir);
 
 % ── 8b. R_ud 总览图
 n_cols = 4;
@@ -331,7 +337,7 @@ for i = 1:n_params
 end
 sgtitle('OAT 敏感性分析 — R_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
     'Interpreter', 'tex', 'FontSize', 11);
-saveas(fig_R, fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
+save_fig(fig_R, fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
 close(fig_R);
 fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_R_ud_overview.png'));
 
@@ -352,7 +358,7 @@ for i = 1:n_params
 end
 sgtitle('OAT 敏感性分析 — C_{ud} 扫描曲线（红色=敏感，灰色=不敏感）', ...
     'Interpreter', 'tex', 'FontSize', 11);
-saveas(fig_C, fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
+save_fig(fig_C, fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
 close(fig_C);
 fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_C_ud_overview.png'));
 
@@ -385,13 +391,36 @@ for k = 1:n_params
         'VerticalAlignment', 'middle', 'FontSize', 8);
 end
 grid on; box on;
-saveas(fig_bar, fullfile(out_dir, 'sensitivity_ranking.png'));
+save_fig(fig_bar, fullfile(out_dir, 'sensitivity_ranking.png'));
 close(fig_bar);
 fprintf('已保存: %s\n', fullfile(out_dir, 'sensitivity_ranking.png'));
 
 fprintf('\n========================================\n');
-fprintf('敏感性分析完成。全部结果保存在: %s/\n', out_dir);
+fprintf('敏感性分析完成。全部结果保存在:\n  %s\n', out_dir);
 fprintf('========================================\n');
+
+% ── 自动打开输出文件夹（仅 Windows；Linux/macOS 下跳过）
+if ispc
+    winopen(out_dir);
+end
+
+%% ══════════════════════════════════════════════════════════════
+%  辅助函数：高分辨率保存图片
+%% ══════════════════════════════════════════════════════════════
+
+function save_fig(fig, fpath)
+% 优先用 exportgraphics（R2020a+），否则退回 print
+% fpath 须为完整绝对路径（.png）
+    if exist('exportgraphics', 'builtin') || exist('exportgraphics', 'file')
+        exportgraphics(fig, fpath, 'Resolution', 150);
+    else
+        % print 需要切换到目标目录，再切回，避免相对路径问题
+        [d, n, e] = fileparts(fpath);
+        orig = cd(d);
+        print(fig, [n e], '-dpng', '-r150');
+        cd(orig);
+    end
+end
 
 %% ══════════════════════════════════════════════════════════════
 %  本地函数（与 xiuzhengcanshu.m 完全一致）
